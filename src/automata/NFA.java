@@ -25,6 +25,10 @@ public class NFA {
 					+ transition.getToState().getId() + " on " + transition.getSymbol());
 		}
 	}
+	
+	
+	
+	
     
     public Set<State> epsilonClosure(Set<State> states) {
 		return states;
@@ -52,12 +56,20 @@ public class NFA {
 		this.startState = startState;
 	}
 	
+	public void setStartState(boolean startState) {
+		
+	}
+	
 	public void setAcceptingStates(Set<State> acceptingStates) {
 		this.acceptingStates = acceptingStates;
 	}
 	
 	public void setTransitions(Set<Transition> transitions) {
 		this.transitions = transitions;
+	}
+	
+	public void addTransition(Transition transition) {
+		transitions.add(transition);
 	}
     
     

@@ -1,5 +1,7 @@
 package automata;
 
+import java.util.Objects;
+
 public class Transition {
     private State fromState;
     private char symbol;
@@ -21,5 +23,20 @@ public class Transition {
 
     public State getToState() {
         return toState;
+    }
+    
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        Transition that = (Transition) obj;
+        return symbol == that.symbol &&
+               Objects.equals(fromState, that.fromState) &&
+               Objects.equals(toState, that.toState);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(fromState, symbol, toState);
     }
 }
