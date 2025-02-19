@@ -30,15 +30,37 @@ public class NFA {
 	
 	
     
-    public Set<State> epsilonClosure(Set<State> states) {
-		return states;
-        // Implement ε-closure logic
-    }
+	public Set<State> epsilonClosure(Set<State> states) {
+	    Set<State> closure = new HashSet<>(states);
+	    Stack<State> stack = new Stack<>();
+	    stack.addAll(states);
+	    
+	    while (!stack.isEmpty()) {
+	        State current = stack.pop();
+	        for (Transition t : transitions) {
+	            if (t.getFromState().equals(current) && t.getSymbol() == '0') {
+	                State toState = t.getToState();
+	                if (!closure.contains(toState)) {
+	                    closure.add(toState);
+	                    stack.push(toState);
+	                }
+	            }
+	        }
+	    }
+	    return closure;
+	}
 
-    public Set<State> move(Set<State> states, char symbol) {
-		return states;
-        // Implement move logic
-    }
+	public Set<State> move(Set<State> states, char symbol) {
+	    Set<State> result = new HashSet<>();
+	    for (State state : states) {
+	        for (Transition t : transitions) {
+	            if (t.getFromState().equals(state) && t.getSymbol() == symbol) {
+	                result.add(t.getToState());
+	            }
+	        }
+	    }
+	    return result;
+	}
     
 	public State getStartState() {
 		return startState;

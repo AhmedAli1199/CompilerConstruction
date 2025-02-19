@@ -19,7 +19,7 @@ public class REtoNFA {
 
         for (int i = 0; i < regex.length(); i++) {
             char c = regex.charAt(i);
-
+            System.out.println("Processing regex character: " + c);
             if (c == '(') {
                 // Push '(' to the operator stack
                 operatorStack.push(c);
@@ -32,7 +32,7 @@ public class REtoNFA {
                 if (!operatorStack.isEmpty() && operatorStack.peek() == '(') {
                     operatorStack.pop();
                 }
-            } else if (c == '*' || c == '|' || c == '.') {
+            } else if (c == '*' || c == '|' || c == '@') {
                 // Push operators to the stack
                 operatorStack.push(c);
             } else {
@@ -79,7 +79,7 @@ public class REtoNFA {
             NFA nfa1 = nfaStack.pop();
             NFA unionNFA = unionNFA(nfa1, nfa2);
             nfaStack.push(unionNFA);
-        } else if (operator == '.') {
+        } else if (operator == '@') {
             // Concatenation: Pop two NFAs, apply concatenation, and push back
             if (nfaStack.size() < 2) {
                 throw new IllegalArgumentException("Invalid regular expression");
