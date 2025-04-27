@@ -114,6 +114,8 @@ void perform_stack_parsing( map<pair<string, string>, vector<string>> table, CFG
                 cout << "Error: No production found for " << top << " with input " << current_input << endl;
                 cout<<"Unexpected Token: "<<current_input<<" after "<<last_input<<endl;
                 errors.push_back("Unexpected Token: "+current_input+" after "+last_input);
+                // Attempt to recover by popping the stack
+                parse_stack.pop(); // Pop the top of the stack to try and recover
             }
         }
          else if (top == current_input)
@@ -124,7 +126,7 @@ void perform_stack_parsing( map<pair<string, string>, vector<string>> table, CFG
             // Get the next input token
             current_input = get_terminal(input, input_pointer);
         }
-         else
+        else
         {
             cout << "Error: Stack top " << top << " does not match input " << current_input << endl;
             errors.push_back("Syntax Error: Expected " + top + " before " + current_input);
