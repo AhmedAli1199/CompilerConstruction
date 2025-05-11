@@ -4,31 +4,30 @@
 #include "ast.h"
 #include "schema.h"
 
-extern FILE *yyin;
+extern int yyparse(void); // Add declaration
 
 int main(int argc, char *argv[]) {
-    char *input_file = NULL;
-    char *out_dir = NULL;
-    int should_print_ast = 0; // Renamed from print_ast
-
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--print-ast") == 0) {
-            should_print_ast = 1;
-        } else if (strcmp(argv[i], "--out-dir") == 0 && i + 1 < argc) {
-            out_dir = argv[++i];
-        } else {
-            input_file = argv[i];
-        }
-    }
-
-    if (!input_file) {
-        fprintf(stderr, "Error: No input file provided\n");
+    if (argc < 2) {
+        fprintf(stderr, "Usage: %s <json_file> [--print-ast] [--out-dir <dir>]\n", argv[0]);
         return 1;
     }
 
-    yyin = fopen(input_file, "r");
+    const char *filename = argv[1];
+    char *out_dir = ".";
+    int print_ast = 0;
+
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--print-ast") == 0) {
+            print_ast = 1;
+        } else if (strcmp(argv[i], "--out-dir") == 0 && i + 1 < argc) {
+            out_dir = argv[++i];
+        }
+    }
+
+    extern FILE *yyin;
+    yyin = fopen(filename, "r");
     if (!yyin) {
-        fprintf(stderr, "Error: Could not open input file %s\n", input_file);
+        fprintf(stderr, "Error opening %s\n", filename);
         return 1;
     }
 
@@ -38,17 +37,15 @@ int main(int argc, char *argv[]) {
     }
     fclose(yyin);
 
-    AstNode *root = get_root();
-    if (should_print_ast) {
-        print_ast(root, 0);
+    if (print_ast) {
+        print_root();
     }
 
-    if (out_dir) {
-        Table *tables = create_tables(root);
-        write_csv(tables, out_dir);
-        free_tables(tables);
-    }
+    Table *tables = create_tables(get_root());
+    write_csv(tables, out_dir);
+    free_tables(tables);
+    free_all_tables();
+    free_root();
 
-    free_ast(root);
     return 0;
 }

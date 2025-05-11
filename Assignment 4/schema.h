@@ -1,5 +1,6 @@
 #ifndef SCHEMA_H
 #define SCHEMA_H
+
 #include "ast.h"
 
 typedef struct column {
@@ -10,6 +11,7 @@ typedef struct column {
 typedef struct row {
     int id;
     char **values;
+    int value_count; // Added to track values size
     struct row *next;
 } Row;
 
@@ -20,9 +22,10 @@ typedef struct table {
     struct table *next;
 } Table;
 
+Table *create_table(const char *name, AstNode *node);
 Table *create_tables(AstNode *node);
-Table *handle_array(AstNode *array, const char *parent_name, int parent_id); /* Add prototype */
 void write_csv(Table *table, const char *dir);
 void free_tables(Table *table);
+void free_all_tables(void); // Added
 
 #endif

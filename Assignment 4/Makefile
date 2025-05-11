@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -g
-LDFLAGS =  # No -lfl
+LDFLAGS = -lfl
 
 all: json2relcsv
 
@@ -8,15 +8,18 @@ json2relcsv: scanner.o parser.o ast.o schema.o main.o
 	@echo "Linking..."
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-parser.tab.h parser.c: parser.y
-	@echo "Generating parser.c and parser.tab.h..."
-	bison --header=parser.tab.h parser.y -o parser.c
+# Generate parser.c and parser.h
+parser.h parser.c: parser.y
+	@echo "Generating parser.c and parser.h..."
+	bison -d parser.y -o parser.c
 
-scanner.c: scanner.l parser.tab.h
+# Generate scanner.c, depending on parser.h
+scanner.c: scanner.l parser.h
 	@echo "Generating scanner.c..."
 	flex -o scanner.c scanner.l
 
-scanner.o: scanner.c parser.tab.h
+# Compile scanner.c, depending on scanner.c and parser.h
+scanner.o: scanner.c parser.h
 	@echo "Compiling scanner.c..."
 	$(CC) $(CFLAGS) -c scanner.c
 
@@ -38,4 +41,4 @@ main.o: main.c ast.h schema.h
 
 clean:
 	@echo "Cleaning up..."
-	rm -f *.o scanner.c parser.c parser.tab.h json2relcsv json2relcsv.exe
+	rm -f *.o scanner.c parser.c parser.h json2relcsv

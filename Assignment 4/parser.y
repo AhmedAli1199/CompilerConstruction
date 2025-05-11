@@ -6,7 +6,7 @@
 
 extern int line, column;
 extern void yyerror(const char *msg);
-extern int yylex(void); /* Declare yylex */
+extern int yylex(void);
 %}
 
 %union {
@@ -43,7 +43,7 @@ pairs: pair             { $$ = $1; }
      | pair COMMA pairs { $$ = append_pair($1, $3); }
      ;
 
-pair: STRING COLON value { $$ = create_pair_node($1, $3); }
+pair: STRING COLON value { $$ = create_pair_node($1, $3); free($1); }
     ;
 
 array: LBRACK values RBRACK { $$ = create_array_node($2); }

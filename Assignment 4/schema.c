@@ -19,129 +19,279 @@ void add_table(Table *table) {
     all_tables = new_table;
 }
 
-Table *create_table(const char *name, AstNode *node) {
+void free_all_tables() {
+    TableList *tl = all_tables;
+    while (tl) {
+        TableList *next = tl->next;
+        free(tl);
+        tl = next;
+    }
+    all_tables = NULL;
+}
+
+// Helper: Add column if not exists
+void add_column_if_missing(Table *table, const char *col_name) {
+    for (Column *c = table->columns; c; c = c->next) {
+        if (strcmp(c->name, col_name) == 0) return;
+    }
+    Column *col = malloc(sizeof(Column));
+    col->name = strdup(col_name);
+    col->next = NULL;
+    // Append to end
+    if (!table->columns) {
+        table->columns = col;
+    } else {
+        Column *last = table->columns;
+        while (last->next) last = last->next;
+        last->next = col;
+    }
+}
+
+// Helper: Collect all keys from all objects in array
+void collect_columns_from_array(Table *table, AstNode *array) {
+    for (AstNode *v = array->data.array.value; v; v = v->data.array.next) {
+        if (v->type != NODE_OBJECT) continue;
+        for (AstNode *p = v->data.pair.value; p; p = p->data.pair.next) {
+            if (p->type == NODE_PAIR && p->data.pair.key && p->data.pair.value &&
+                p->data.pair.value->type != NODE_ARRAY && p->data.pair.value->type != NODE_OBJECT) {
+                add_column_if_missing(table, p->data.pair.key);
+            }
+        }
+    }
+}
+
+// Create table for array of objects, collecting all possible columns
+Table *create_table_for_array(const char *name, AstNode *array) {
     Table *table = malloc(sizeof(Table));
     table->name = strdup(name);
     table->columns = NULL;
     table->rows = NULL;
     table->next = NULL;
 
-    Column *id_col = malloc(sizeof(Column));
-    id_col->name = strdup("id");
-    id_col->next = NULL;
-    table->columns = id_col;
+    // id column always first
+    add_column_if_missing(table, "id");
 
-    for (AstNode *p = node->data.pair.value; p; p = p->data.pair.next) {
-        Column *col = malloc(sizeof(Column));
-        col->name = strdup(p->data.pair.key);
-        col->next = table->columns;
-        table->columns = col;
-    }
+    collect_columns_from_array(table, array);
 
     return table;
 }
 
-Table *handle_array(AstNode *array, const char *parent_name, int parent_id) {
-    if (!array || array->type != NODE_ARRAY) return NULL;
+// Create table for a single object
+Table *create_table_for_object(const char *name, AstNode *object) {
+    Table *table = malloc(sizeof(Table));
+    table->name = strdup(name);
+    table->columns = NULL;
+    table->rows = NULL;
+    table->next = NULL;
 
-    AstNode *first = array->data.array.value;
-    if (first && first->type == NODE_OBJECT) {
-        // Array of objects (test3.json)
-        Table *table = create_table("items", first);
-        add_table(table);
-        int seq = 0;
-        for (AstNode *v = array->data.array.value; v; v = v->data.array.next) {
-            Table *child = create_tables(v);
-            Row *row = child->rows;
-            row->values[0] = malloc(32);
-            snprintf(row->values[0], 32, "%d", parent_id);
-            row->values[1] = malloc(32);
-            snprintf(row->values[1], 32, "%d", seq++);
+    add_column_if_missing(table, "id");
+    for (AstNode *p = object->data.pair.value; p; p = p->data.pair.next) {
+        if (p->type == NODE_PAIR && p->data.pair.key && p->data.pair.value &&
+            p->data.pair.value->type != NODE_ARRAY && p->data.pair.value->type != NODE_OBJECT) {
+            add_column_if_missing(table, p->data.pair.key);
         }
-        return table;
-    } else {
-        // Array of scalars (test2.json)
-        Table *table = malloc(sizeof(Table));
-        table->name = strdup("junction");
-        table->columns = NULL;
-        Column *c1 = malloc(sizeof(Column));
-        c1->name = strdup("parent_id");
-        c1->next = NULL;
-        Column *c2 = malloc(sizeof(Column));
-        c2->name = strdup("index");
-        c2->next = c1;
-        Column *c3 = malloc(sizeof(Column));
-        c3->name = strdup("value");
-        c3->next = c2;
-        table->columns = c3;
-        table->rows = NULL;
+        // For nested objects, add a column to store their id
+        if (p->type == NODE_PAIR && p->data.pair.key && p->data.pair.value &&
+            p->data.pair.value->type == NODE_OBJECT) {
+            add_column_if_missing(table, p->data.pair.key);
+        }
+    }
+    return table;
+}
 
-        int index = 0;
-        for (AstNode *v = array->data.array.value; v; v = v->data.array.next) {
-            Row *row = malloc(sizeof(Row));
-            row->id = id_counter++;
-            row->values = malloc(3 * sizeof(char *));
-            row->values[0] = malloc(32);
-            snprintf(row->values[0], 32, "%d", parent_id);
-            row->values[1] = malloc(32);
-            snprintf(row->values[1], 32, "%d", index++);
-            row->values[2] = v->type == NODE_STRING ? strdup(v->data.string) :
-                            v->type == NODE_NUMBER ? (char *)malloc(32) : NULL;
-            if (v->type == NODE_NUMBER) snprintf(row->values[2], 32, "%.0f", v->data.number);
-            row->next = table->rows;
-            table->rows = row;
+// Find column index by name
+int column_index(Table *table, const char *col_name) {
+    int idx = 0;
+    for (Column *c = table->columns; c; c = c->next, idx++) {
+        if (strcmp(c->name, col_name) == 0) return idx;
+    }
+    return -1;
+}
+
+// Fill row values for object
+void fill_row_values(Table *table, Row *row, AstNode *object) {
+    int col_count = 0;
+    for (Column *c = table->columns; c; c = c->next) col_count++;
+    row->values = calloc(col_count, sizeof(char *));
+    row->value_count = col_count;
+
+    // id
+    int idx = column_index(table, "id");
+    if (idx >= 0) {
+        row->values[idx] = malloc(32);
+        snprintf(row->values[idx], 32, "%d", row->id);
+    }
+    // other columns
+    for (AstNode *p = object->data.pair.value; p; p = p->data.pair.next) {
+        if (p->type != NODE_PAIR || !p->data.pair.key || !p->data.pair.value) continue;
+        if (p->data.pair.value->type == NODE_ARRAY || p->data.pair.value->type == NODE_OBJECT) continue;
+        idx = column_index(table, p->data.pair.key);
+        if (idx >= 0) {
+            if (p->data.pair.value->type == NODE_STRING) {
+                row->values[idx] = strdup(p->data.pair.value->data.string);
+            } else if (p->data.pair.value->type == NODE_NUMBER) {
+                row->values[idx] = malloc(32);
+                snprintf(row->values[idx], 32, "%.0f", p->data.pair.value->data.number);
+            } else if (p->data.pair.value->type == NODE_BOOL) {
+                row->values[idx] = strdup(p->data.pair.value->data.boolean ? "true" : "false");
+            } else if (p->data.pair.value->type == NODE_NULL) {
+                row->values[idx] = strdup("");
+            }
         }
-        add_table(table);
-        return table;
     }
 }
 
-Table *create_tables(AstNode *node) {
+// Recursively create tables for AST
+Table *create_tables_recursive(AstNode *node, const char *name, const char *parent_name, int parent_id) {
     if (!node) return NULL;
+    Table *main_table = NULL, *last_table = NULL;
 
     if (node->type == NODE_OBJECT) {
-        char *table_name = "table_name"; // TODO: Derive dynamically
-        Table *table = NULL;
-
-        // Create new table (shape detection to be added later)
-        table = create_table(table_name, node);
-        add_table(table);
+        main_table = create_table_for_object(name, node);
+        add_table(main_table);
 
         Row *row = malloc(sizeof(Row));
         row->id = id_counter++;
-        row->values = malloc(10 * sizeof(char *));
-        for (int i = 0; i < 10; i++) row->values[i] = NULL;
-        row->next = table->rows;
-        table->rows = row;
+        fill_row_values(main_table, row, node);
 
-        int col_idx = 0;
+        // For each pair, if value is an object, create child table and store its id in parent row
         for (AstNode *p = node->data.pair.value; p; p = p->data.pair.next) {
-            AstNode *val = p->data.pair.value;
-            if (val->type == NODE_OBJECT) {
-                Table *child = create_tables(val);
-                char *fk_val = malloc(32);
-                snprintf(fk_val, 32, "%d", child->rows->id);
-                row->values[col_idx++] = fk_val;
-                table->next = child;
-            } else if (val->type == NODE_ARRAY) {
-                Table *child = handle_array(val, table->name, row->id);
-                if (child) table->next = child;
-            } else {
-                char *str_val = NULL;
-                if (val->type == NODE_STRING) str_val = strdup(val->data.string);
-                else if (val->type == NODE_NUMBER) {
-                    str_val = malloc(32);
-                    snprintf(str_val, 32, "%.0f", val->data.number);
-                } else if (val->type == NODE_BOOL) {
-                    str_val = strdup(val->data.boolean ? "true" : "false");
+            if (p->type != NODE_PAIR || !p->data.pair.key || !p->data.pair.value) continue;
+            if (p->data.pair.value->type == NODE_OBJECT) {
+                Table *child = create_tables_recursive(p->data.pair.value, p->data.pair.key, name, row->id);
+                if (child && child->rows) {
+                    // Store the id of the nested object in the parent row
+                    int idx = column_index(main_table, p->data.pair.key);
+                    if (idx >= 0) {
+                        char id_buf[32];
+                        snprintf(id_buf, sizeof(id_buf), "%d", child->rows->id);
+                        if (row->values[idx]) free(row->values[idx]);
+                        row->values[idx] = strdup(id_buf);
+                    }
                 }
-                row->values[col_idx++] = str_val;
+                // Chain child tables
+                if (child) {
+                    if (!last_table) main_table->next = child;
+                    else last_table->next = child;
+                    while (child->next) child = child->next;
+                    last_table = child;
+                }
+            } else if (p->data.pair.value->type == NODE_ARRAY) {
+                Table *child = create_tables_recursive(p->data.pair.value, p->data.pair.key, name, row->id);
+                if (child) {
+                    if (!last_table) main_table->next = child;
+                    else last_table->next = child;
+                    while (child->next) child = child->next;
+                    last_table = child;
+                }
             }
         }
 
-        return table;
+        row->next = main_table->rows;
+        main_table->rows = row;
+        return main_table;
+    } else if (node->type == NODE_ARRAY) {
+        AstNode *first = node->data.array.value;
+        if (!first) return NULL;
+        int is_obj_array = (first->type == NODE_OBJECT);
+
+        if (is_obj_array) {
+            Table *table = create_table_for_array(name, node);
+            add_table(table);
+            for (AstNode *v = node->data.array.value; v; v = v->data.array.next) {
+                Row *row = malloc(sizeof(Row));
+                row->id = id_counter++;
+                fill_row_values(table, row, v);
+                row->next = table->rows;
+                table->rows = row;
+
+                // Recursively handle nested arrays/objects
+                for (AstNode *p = v->data.pair.value; p; p = p->data.pair.next) {
+                    if (p->type != NODE_PAIR || !p->data.pair.key || !p->data.pair.value) continue;
+                    if (p->data.pair.value->type == NODE_ARRAY || p->data.pair.value->type == NODE_OBJECT) {
+                        Table *child = create_tables_recursive(p->data.pair.value, p->data.pair.key, name, row->id);
+                        if (child && p->data.pair.value->type == NODE_OBJECT && child->rows) {
+                            // Store the id of the nested object in the parent row
+                            int idx = column_index(table, p->data.pair.key);
+                            if (idx >= 0) {
+                                char id_buf[32];
+                                snprintf(id_buf, sizeof(id_buf), "%d", child->rows->id);
+                                if (row->values[idx]) free(row->values[idx]);
+                                row->values[idx] = strdup(id_buf);
+                            }
+                        }
+                        if (child) {
+                            if (!last_table) table->next = child;
+                            else last_table->next = child;
+                            while (child->next) child = child->next;
+                            last_table = child;
+                        }
+                    }
+                }
+            }
+            return table;
+        } else {
+            // Array of primitives: <parent>_id, index, value
+            Table *table = malloc(sizeof(Table));
+            table->name = strdup(name);
+            table->columns = NULL;
+            table->rows = NULL;
+            table->next = NULL;
+
+            // Add parent id column (e.g., movie_id), index, value
+            char fk_col[128];
+            if (parent_name && strlen(parent_name) > 0) {
+                snprintf(fk_col, sizeof(fk_col), "%s_id", parent_name);
+            } else {
+                snprintf(fk_col, sizeof(fk_col), "parent_id");
+            }
+            add_column_if_missing(table, fk_col);
+            add_column_if_missing(table, "index");
+            add_column_if_missing(table, "value");
+
+            add_table(table);
+
+            int idx = 0;
+            for (AstNode *v = node->data.array.value; v; v = v->data.array.next, idx++) {
+                Row *row = malloc(sizeof(Row));
+                row->id = 0; // not used
+                int col_count = 0;
+                for (Column *c = table->columns; c; c = c->next) col_count++;
+                row->values = calloc(col_count, sizeof(char *));
+                row->value_count = col_count;
+
+                int fk_idx = column_index(table, fk_col);
+                int index_idx = column_index(table, "index");
+                int value_idx = column_index(table, "value");
+
+                if (fk_idx >= 0) {
+                    row->values[fk_idx] = malloc(32);
+                    snprintf(row->values[fk_idx], 32, "%d", parent_id);
+                }
+                if (index_idx >= 0) {
+                    row->values[index_idx] = malloc(32);
+                    snprintf(row->values[index_idx], 32, "%d", idx);
+                }
+                if (value_idx >= 0) {
+                    if (v->type == NODE_STRING) row->values[value_idx] = strdup(v->data.string);
+                    else if (v->type == NODE_NUMBER) {
+                        row->values[value_idx] = malloc(32);
+                        snprintf(row->values[value_idx], 32, "%.0f", v->data.number);
+                    } else if (v->type == NODE_BOOL) {
+                        row->values[value_idx] = strdup(v->data.boolean ? "true" : "false");
+                    }
+                }
+                row->next = table->rows;
+                table->rows = row;
+            }
+            return table;
+        }
     }
     return NULL;
+}
+
+Table *create_tables(AstNode *node) {
+    return create_tables_recursive(node, "table_name", NULL, 0);
 }
 
 void write_csv(Table *table, const char *dir) {
@@ -163,9 +313,9 @@ void write_csv(Table *table, const char *dir) {
         fprintf(fp, "\n");
 
         for (Row *r = table->rows; r; r = r->next) {
-            fprintf(fp, "%d", r->id);
-            for (int i = 0; i < col_count - 1; i++) {
-                fprintf(fp, ",%s", r->values[i] ? r->values[i] : "");
+            for (int i = 0; i < col_count; i++) {
+                if (i > 0) fprintf(fp, ",");
+                fprintf(fp, "%s", r->values[i] ? r->values[i] : "");
             }
             fprintf(fp, "\n");
         }
@@ -186,7 +336,13 @@ void free_tables(Table *table) {
         Row *r = table->rows;
         while (r) {
             Row *next_r = r->next;
-            for (int i = 0; r->values[i]; i++) free(r->values[i]);
+            int value_count = r->value_count;
+            for (int i = 0; i < value_count; i++) {
+                if (r->values[i]) {
+                    free(r->values[i]);
+                    r->values[i] = NULL;
+                }
+            }
             free(r->values);
             free(r);
             r = next_r;

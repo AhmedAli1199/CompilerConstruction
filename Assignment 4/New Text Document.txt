@@ -1,2 +1,0 @@
-bison --header=parser.tab.h parser.y -o parser.c
-
